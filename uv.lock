@@ -8,6 +8,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "dataagent-demo",
     "deepsearch-demo",
     "langchain-demo",
 ]
@@ -402,6 +403,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0a/09/ddc5f630cc32287d2c953fc5d32705e63ec73e37308e5120955316f53827/cryptography-46.0.6-cp38-abi3-win32.whl", hash = "sha256:7f6690b6c55e9c5332c0b59b9c8a3fb232ebf059094c17f9019a51e9827df91c", size = 3010660, upload-time = "2026-03-25T23:34:35.418Z" },
     { url = "https://files.pythonhosted.org/packages/1b/82/ca4893968aeb2709aacfb57a30dec6fa2ab25b10fa9f064b8882ce33f599/cryptography-46.0.6-cp38-abi3-win_amd64.whl", hash = "sha256:79e865c642cfc5c0b3eb12af83c35c5aeff4fa5c672dc28c43721c2c9fdd2f0f", size = 3471160, upload-time = "2026-03-25T23:34:37.191Z" },
 ]
+
+[[package]]
+name = "dataagent-demo"
+version = "0.1.0"
+source = { editable = "projects/dataagent-demo" }
 
 [[package]]
 name = "debugpy"
@@ -1123,9 +1129,19 @@ dependencies = [
     { name = "tavily-python" },
 ]
 
+[package.optional-dependencies]
+dataagent = [
+    { name = "dataagent-demo" },
+]
+deepsearch = [
+    { name = "deepsearch-demo" },
+]
+
 [package.metadata]
 requires-dist = [
+    { name = "dataagent-demo", marker = "extra == 'dataagent'", editable = "projects/dataagent-demo" },
     { name = "deepagents", specifier = ">=0.4.12" },
+    { name = "deepsearch-demo", marker = "extra == 'deepsearch'", editable = "projects/deepsearch-demo" },
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "langchain", specifier = ">=1.1.0" },
     { name = "langchain-deepseek", specifier = ">=1.0.1" },
@@ -1135,6 +1151,7 @@ requires-dist = [
     { name = "socksio", specifier = ">=1.0.0" },
     { name = "tavily-python", specifier = ">=0.7.23" },
 ]
+provides-extras = ["deepsearch", "dataagent"]
 
 [[package]]
 name = "langchain-google-genai"
