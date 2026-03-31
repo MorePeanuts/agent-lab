@@ -5,10 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "deepagents>=0.4.12",
+    "jupyter>=1.1.1",
     "langchain>=1.1.0",
     "langchain-deepseek>=1.0.1",
     "langchain-openai>=1.1.0",
     "langgraph>=1.0.4",
     "rich>=14.2.0",
     "socksio>=1.0.0",
+    "tavily-python>=0.7.23",
 ]
