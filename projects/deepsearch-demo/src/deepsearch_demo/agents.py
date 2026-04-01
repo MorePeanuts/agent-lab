@@ -5,7 +5,7 @@ from langgraph.types import Command
 from langgraph.graph import StateGraph, START, END
 from loguru import logger
 from .state import State, Paragraph
-from .schema import ReportStructure
+from .schema import ReportStructure, ReflectionSummary
 from .tools import tavily_search
 from .utils import truncate_content
 
@@ -186,8 +186,75 @@ Latest state: {paragraph.research.latest_summary}
         return Command(update={'paragraphs': paragraphs}, goto='reflection_summary')
 
     def reflection_summary(self, state: State) -> Command:
-        goto = ''
-        return Command(goto=goto)
+        prompt = """
+You are a deep research assistant.
+
+You will receive search queries, search results, section titles, and the intended content of the report section you are researching.
+
+You are iteratively refining this section, and the latest state of the section will also be provided to you.
+
+Your task is to enrich the current latest status of the paragraph based on search results and expected content.
+
+Do not delete key information from the latest status, try to enrich it, and only add missing information.
+
+If you believe you have obtained sufficient information, you can terminate the iterative reflection process.
+"""
+        llm_with_structure = self.llm.with_structured_output(ReflectionSummary)
+
+        paragraph_index = state.paragraph_index
+        paragraphs = state.paragraphs
+        paragraph = paragraphs[paragraph_index]
+        reflection_iteration = paragraph.research.reflection_iteration
+        search_history = paragraph.research.search_history
+        logger.info(
+            f'Summarizing paragraph {paragraph_index}, currently on the {paragraph.research.reflection_iteration} iteration...'
+        )
+
+        user_prompt = f"""
+Title: {paragraph.title}
+Content: {paragraph.content}
+Paragraph latest state: {paragraph.research.latest_summary}
+"""
+        if len(search_history) > 0:
+            user_prompt += f'Search query: {search_history[0].search_query}\n'
+        for idx, search_result in enumerate(search_history):
+            user_prompt += f'\tSearch result {idx}: {truncate_content(search_result.content)}'
+
+        try:
+            response = llm_with_structure.invoke(
+                [
+                    SystemMessage(prompt),
+                    HumanMessage(user_prompt),
+                ]
+            )
+            assert isinstance(response, ReflectionSummary)
+        except Exception:
+            logger.exception('Exception occurred while running reflection_summary.')
+            raise
+
+        paragraph.research.latest_summary = response.summary
+        stop_reflection = response.stop_reflection
+        logger.info(
+            f'Summary of {reflection_iteration} iteration paragraph {paragraph_index}: {truncate_content(response.summary)}'
+        )
+
+        if stop_reflection or reflection_iteration >= self.max_reflections:
+            if paragraph_index < len(paragraphs) - 1:
+                goto = 'first_search'
+                paragraph_index += 1
+            else:
+                goto = 'generate_final_report'
+            paragraph.research.is_completed = True
+        else:
+            goto = 'reflection'
+
+        return Command(
+            update={
+                'paragraphs': paragraphs,
+                'paragraph_index': paragraph_index,
+            },
+            goto=goto,
+        )
 
     def generate_final_report(self, state: State) -> Command:
         return Command()
