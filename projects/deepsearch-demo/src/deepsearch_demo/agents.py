@@ -98,12 +98,16 @@ Your task is to think about this topic and provide the best web search query to 
 Title: {paragraph.title}
 Expected content: {paragraph.content}
 """
-        ai_msg = llm_with_tools.invoke(
-            [
-                SystemMessage(prompt),
-                HumanMessage(user_prompt),
-            ]
-        )
+        try:
+            ai_msg = llm_with_tools.invoke(
+                [
+                    SystemMessage(prompt),
+                    HumanMessage(user_prompt),
+                ]
+            )
+        except Exception:
+            logger.exception('Exception while running first_search.')
+            raise
         search_results = []
         for tool_call in ai_msg.tool_calls:
             tool_results = tavily_search.invoke(tool_call['args'])
@@ -135,12 +139,17 @@ Expected content: {paragraph.content}\n
             user_prompt += f'Search query: {search_history[0].search_query}\n'
         for idx, search_result in enumerate(search_history):
             user_prompt += f'\tSearch result {idx}: {truncate_content(search_result.content)}'
-        response = self.llm.invoke(
-            [
-                SystemMessage(prompt),
-                HumanMessage(user_prompt),
-            ]
-        )
+
+        try:
+            response = self.llm.invoke(
+                [
+                    SystemMessage(prompt),
+                    HumanMessage(user_prompt),
+                ]
+            )
+        except Exception:
+            logger.exception('Exception while running first_summary.')
+            raise
         paragraph.research.latest_summary = response.pretty_repr()
         logger.info(
             f'First summary for paragraph {paragraph_index}: {truncate_content(paragraph.research.latest_summary, 100)}'
@@ -169,12 +178,16 @@ Title: {paragraph.title}
 Content: {paragraph.content}
 Latest state: {paragraph.research.latest_summary}
 """
-        ai_msg = llm_with_tools.invoke(
-            [
-                SystemMessage(prompt),
-                HumanMessage(user_prompt),
-            ]
-        )
+        try:
+            ai_msg = llm_with_tools.invoke(
+                [
+                    SystemMessage(prompt),
+                    HumanMessage(user_prompt),
+                ]
+            )
+        except Exception:
+            logger.exception('Exception while running reflection.')
+            raise
         search_results = []
         for tool_call in ai_msg.tool_calls:
             tool_results = tavily_search.invoke(tool_call['args'])
