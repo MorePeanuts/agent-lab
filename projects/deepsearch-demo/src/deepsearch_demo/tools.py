@@ -6,6 +6,7 @@ from loguru import logger
 
 @dataclass
 class SearchResult:
+    search_query: str
     title: str
     url: str
     content: str
@@ -37,6 +38,7 @@ def tavily_search(search_query: str) -> list[SearchResult]:
 
         for item in response.get('results', []):
             result = SearchResult(
+                search_query=search_query,
                 title=item.get('title'),
                 url=item.get('url'),
                 content=item.get('content'),

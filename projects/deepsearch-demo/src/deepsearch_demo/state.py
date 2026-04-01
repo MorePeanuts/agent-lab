@@ -1,35 +1,29 @@
-from typing import TypedDict
+from dataclasses import dataclass, field
 from .schema import ReportStructure
+from .tools import SearchResult
 
 
-class Search(TypedDict):
-    query: str
-    url: str
-    title: str
-    content: str
-    score: float | None
-    timestamp: str
+@dataclass
+class Research:
+    search_history: list[SearchResult] = field(default_factory=list)
+    latest_summary: str = ''
+    reflection_iteration: int = 0
+    is_completed: bool = False
 
 
-class Research(TypedDict):
-    search_history: list[Search]
-    latest_summary: str
-    reflection_iteration: int
-    is_completed: bool
+@dataclass
+class Paragraph:
+    title: str = ''
+    content: str = ''
+    research: Research = field(default_factory=Research)
+    order: int = 0
 
 
-class Paragraph(TypedDict):
-    title: str
-    content: str
-    research: Research
-    order: int
-
-
-class State(TypedDict):
-    query: str
-    report_title: str
-    paragraphs: list[Paragraph]
-    final_report: str
-    is_completed: bool
-    created_at: str
-    updated_at: str
+@dataclass
+class State:
+    query: str = ''
+    report_title: str = ''
+    paragraphs: list[Paragraph] = field(default_factory=list)
+    paragraph_index: int = 0
+    final_report: str = ''
+    is_completed: bool = False

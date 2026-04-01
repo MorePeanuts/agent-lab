@@ -1,23 +1,32 @@
+import json
 from langchain.chat_models import init_chat_model
-from langchain.messages import SystemMessage, HumanMessage
+from langchain.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.types import Command
+from langgraph.graph import StateGraph, START, END
 from loguru import logger
-from .state import State
+from .state import State, Paragraph
 from .schema import ReportStructure
+from .tools import tavily_search
 
 
 class DeepSearchAgent:
     def __init__(self):
         self.llm = init_chat_model('deepseek-chat')
+        self.agent = (
+            StateGraph(State)
+            .add_node('generate_report_structure', self.generate_report_structure)
+            .add_node('first_search', self.first_search)
+            .add_edge(START, 'generate_report_structure')
+            .compile()
+        )
 
     def research(self, query: str, save_report: bool = True) -> str:
         logger.info(f'Start research: {query}')
-        self.state = {'query': query}
-
-        return ''
+        self.state = State(query=query)
+        response = self.agent.invoke(self.state)
+        return AIMessage(response['final_report']).pretty_repr()
 
     def generate_report_structure(self, state: State) -> Command:
-        logger.info('Step1: Generate report structure.')
         logger.info('Generating the report structure based on the following query:')
 
         prompt = """
@@ -32,7 +41,7 @@ Once the outline is created, you will be provided with tools to search the web a
             report_structure = llm_with_structure.invoke(
                 [
                     SystemMessage(prompt),
-                    HumanMessage(state['query']),
+                    HumanMessage(state.query),
                 ]
             )
             assert isinstance(report_structure, ReportStructure)
@@ -40,16 +49,10 @@ Once the outline is created, you will be provided with tools to search the web a
             logger.exception('Exception occurred while generating the report structure.')
             raise
 
-        report_title = f'Deep Research Report on {state["query"]}'
+        report_title = f'Deep Research Report on {state.query}'
         paragraphs = []
         for idx, item in enumerate(report_structure.items):
-            paragraphs.append(
-                {
-                    'title': item.title,
-                    'content': item.content,
-                    'order': idx,
-                }
-            )
+            paragraphs.append(Paragraph(item.title, item.content, order=idx))
 
         logger.info(
             f'The report structure has been generated, consisting of {len(paragraphs)} paragraphs.'
@@ -61,5 +64,45 @@ Once the outline is created, you will be provided with tools to search the web a
             update={
                 'report_title': report_title,
                 'paragraphs': paragraphs,
-            }
+                'paragraph_index': 0,
+            },
+            goto='first_search',
+        )
+
+    def first_search(self, state: State) -> Command:
+        prompt = """
+You are an in-depth research assistant. You will be given the title and expected content of a paragraph from a report.
+
+You can use a web search tool that accepts 'search_query' as a parameter.
+
+Your task is to think about this topic and provide the best web search query to enrich your current knowledge.
+"""
+        llm_with_tools = self.llm.bind_tools([tavily_search], tool_choice='tavily_search')
+
+        paragraph_index = state.paragraph_index
+        paragraphs = state.paragraphs
+        paragraph = paragraphs[paragraph_index]
+        logger.info(f'Processing paragraph {paragraph_index}, performing first search.')
+
+        user_prompt = f"""
+Title: {paragraph.title}
+Expected content: {paragraph.content}
+"""
+        ai_msg = llm_with_tools.invoke(
+            [
+                SystemMessage(prompt),
+                HumanMessage(user_prompt),
+            ]
+        )
+        search_results = []
+        for tool_call in ai_msg.tool_calls:
+            tool_results = tavily_search.invoke(tool_call['args'])
+            search_results.append(tool_results)
+
+        logger.info(f'A total of {len(search_results)} search results found')
+        paragraph.research.search_history.extend(search_results)
+
+        return Command(
+            update={'paragraphs': paragraphs},
+            goto='first_summary',
         )
