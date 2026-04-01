@@ -19,7 +19,11 @@ class DeepSearchAgent:
             .add_node('generate_report_structure', self.generate_report_structure)
             .add_node('first_search', self.first_search)
             .add_node('first_summary', self.first_summary)
+            .add_node('reflection', self.reflection)
+            .add_node('reflection_summary', self.reflection_summary)
+            .add_node('generate_final_report', self.generate_final_report)
             .add_edge(START, 'generate_report_structure')
+            .add_edge('generate_final_report', END)
             .compile()
         )
 
@@ -28,6 +32,9 @@ class DeepSearchAgent:
         self.state = State(query=query)
         response = self.agent.invoke(self.state)
         return AIMessage(response['final_report']).pretty_repr()
+
+    def plot_graph(self):
+        raise NotImplementedError()
 
     def generate_report_structure(self, state: State) -> Command:
         logger.info('Generating the report structure based on the following query:')
@@ -109,6 +116,9 @@ Expected content: {paragraph.content}
 
     def first_summary(self, state: State) -> Command:
         prompt = """
+You are a deep research assistant. Please write a piece of content that aligns with the paragraph's theme based on the title, desired content of the target paragraph, and the information gathered from searches.
+
+Please generate the content directly, without producing irrelevant information.
 """
 
         paragraph_index = state.paragraph_index
@@ -119,8 +129,7 @@ Expected content: {paragraph.content}
 
         user_prompt = f"""
 Title: {paragraph.title}
-Expected content: {paragraph.content}
-
+Expected content: {paragraph.content}\n
 """
         if len(search_history) > 0:
             user_prompt += f'Search query: {search_history[0].search_query}\n'
@@ -140,4 +149,45 @@ Expected content: {paragraph.content}
         return Command(update={'paragraphs': paragraphs}, goto='reflection')
 
     def reflection(self, state: State) -> Command:
-        raise NotImplementedError()
+        prompt = """
+You are a deep research assistant, responsible for studying reports and constructing comprehensive paragraphs. You will be provided with paragraph titles, summaries of planned content, and the latest status of paragraphs you have already created.
+
+You can use a web search tool that takes `search_query` as a parameter. Your task is to reflect on the current state of the paragraph text, consider whether any key aspects of the topic have been omitted, and provide the best web search tool query to enrich the latest state.
+"""
+        llm_with_tools = self.llm.bind_tools([tavily_search], tool_choice='tavily_search')
+
+        paragraph_index = state.paragraph_index
+        paragraphs = state.paragraphs
+        paragraph = paragraphs[paragraph_index]
+        paragraph.research.reflection_iteration += 1
+        logger.info(
+            f'Iterating through paragraph {paragraph_index}, currently on the {paragraph.research.reflection_iteration} iteration...'
+        )
+
+        user_prompt = f"""
+Title: {paragraph.title}
+Content: {paragraph.content}
+Latest state: {paragraph.research.latest_summary}
+"""
+        ai_msg = llm_with_tools.invoke(
+            [
+                SystemMessage(prompt),
+                HumanMessage(user_prompt),
+            ]
+        )
+        search_results = []
+        for tool_call in ai_msg.tool_calls:
+            tool_results = tavily_search.invoke(tool_call['args'])
+            search_results.append(tool_results)
+
+        logger.info(f'A total of {len(search_results)} search results found')
+        paragraph.research.search_history.extend(search_results)
+
+        return Command(update={'paragraphs': paragraphs}, goto='reflection_summary')
+
+    def reflection_summary(self, state: State) -> Command:
+        goto = ''
+        return Command(goto=goto)
+
+    def generate_final_report(self, state: State) -> Command:
+        return Command()
