@@ -7,15 +7,18 @@ from loguru import logger
 from .state import State, Paragraph
 from .schema import ReportStructure
 from .tools import tavily_search
+from .utils import truncate_content
 
 
 class DeepSearchAgent:
     def __init__(self):
         self.llm = init_chat_model('deepseek-chat')
+        self.max_reflections = 3
         self.agent = (
             StateGraph(State)
             .add_node('generate_report_structure', self.generate_report_structure)
             .add_node('first_search', self.first_search)
+            .add_node('first_summary', self.first_summary)
             .add_edge(START, 'generate_report_structure')
             .compile()
         )
@@ -102,7 +105,39 @@ Expected content: {paragraph.content}
         logger.info(f'A total of {len(search_results)} search results found')
         paragraph.research.search_history.extend(search_results)
 
-        return Command(
-            update={'paragraphs': paragraphs},
-            goto='first_summary',
+        return Command(update={'paragraphs': paragraphs}, goto='first_summary')
+
+    def first_summary(self, state: State) -> Command:
+        prompt = """
+"""
+
+        paragraph_index = state.paragraph_index
+        paragraphs = state.paragraphs
+        paragraph = paragraphs[paragraph_index]
+        search_history = paragraph.research.search_history
+        logger.info(f'Processing paragraph {paragraph_index}, performing first summary.')
+
+        user_prompt = f"""
+Title: {paragraph.title}
+Expected content: {paragraph.content}
+
+"""
+        if len(search_history) > 0:
+            user_prompt += f'Search query: {search_history[0].search_query}\n'
+        for idx, search_result in enumerate(search_history):
+            user_prompt += f'\tSearch result {idx}: {truncate_content(search_result.content)}'
+        response = self.llm.invoke(
+            [
+                SystemMessage(prompt),
+                HumanMessage(user_prompt),
+            ]
         )
+        paragraph.research.latest_summary = response.pretty_repr()
+        logger.info(
+            f'First summary for paragraph {paragraph_index}: {truncate_content(paragraph.research.latest_summary, 100)}'
+        )
+
+        return Command(update={'paragraphs': paragraphs}, goto='reflection')
+
+    def reflection(self, state: State) -> Command:
+        raise NotImplementedError()
