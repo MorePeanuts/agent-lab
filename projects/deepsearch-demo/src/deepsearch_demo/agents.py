@@ -13,9 +13,10 @@ from .utils import truncate_content
 
 
 class DeepSearchAgent:
-    def __init__(self):
+    def __init__(self, max_reflections=3, save_dir: Path | None = None):
         self.llm = init_chat_model('deepseek-chat')
-        self.max_reflections = 3
+        self.max_reflections = max_reflections
+        self.save_dir = save_dir
         self.agent = (
             StateGraph(State)
             .add_node('generate_report_structure', self.generate_report_structure)
@@ -29,7 +30,7 @@ class DeepSearchAgent:
             .compile()
         )
 
-    def research(self, query: str, save_report: bool = True) -> str:
+    def research(self, query: str) -> str:
         logger.info(f'Start research: {query}')
         self.state = State(query=query)
         response = self.agent.invoke(self.state)
@@ -50,14 +51,17 @@ Ensure the paragraphs are logically and sequentially ordered.
 
 Once the outline is created, you will be provided with tools to search the web and reflect on each section separately.
 """
-        llm_with_structure = self.llm.with_structured_output(ReportStructure)
+        llm_with_structure = self.llm.with_structured_output(ReportStructure, include_raw=True)
         try:
-            report_structure = llm_with_structure.invoke(
+            response = llm_with_structure.invoke(
                 [
                     SystemMessage(prompt),
                     HumanMessage(state.query),
                 ]
             )
+            assert isinstance(response, dict) and response['parsing_error'] is None
+            ai_msg = response['raw']
+            report_structure = response['parsed']
             assert isinstance(report_structure, ReportStructure)
         except Exception:
             logger.exception('Exception occurred while generating the report structure.')
@@ -145,7 +149,7 @@ Expected content: {paragraph.content}\n
             user_prompt += f'\tSearch result {idx}: {truncate_content(search_result.content)}'
 
         try:
-            response = self.llm.invoke(
+            ai_msg = self.llm.invoke(
                 [
                     SystemMessage(prompt),
                     HumanMessage(user_prompt),
@@ -154,7 +158,7 @@ Expected content: {paragraph.content}\n
         except Exception:
             logger.exception('Exception while running first_summary.')
             raise
-        paragraph.research.latest_summary = response.pretty_repr()
+        paragraph.research.latest_summary = ai_msg.pretty_repr()
         logger.info(
             f'First summary for paragraph {paragraph_index}: {truncate_content(paragraph.research.latest_summary, 100)}'
         )
@@ -218,7 +222,7 @@ Do not delete key information from the latest status, try to enrich it, and only
 
 If you believe you have obtained sufficient information, you can terminate the iterative reflection process.
 """
-        llm_with_structure = self.llm.with_structured_output(ReflectionSummary)
+        llm_with_structure = self.llm.with_structured_output(ReflectionSummary, include_raw=True)
 
         paragraph_index = state.paragraph_index
         paragraphs = state.paragraphs
@@ -246,15 +250,18 @@ Paragraph latest state: {paragraph.research.latest_summary}
                     HumanMessage(user_prompt),
                 ]
             )
-            assert isinstance(response, ReflectionSummary)
+            assert isinstance(response, dict) and response['parsing_error'] is None
+            ai_msg = response['raw']
+            summary = response['parsed']
+            assert isinstance(summary, ReflectionSummary)
         except Exception:
             logger.exception('Exception occurred while running reflection_summary.')
             raise
 
-        paragraph.research.latest_summary = response.summary
-        stop_reflection = response.stop_reflection
+        paragraph.research.latest_summary = summary.summary
+        stop_reflection = summary.stop_reflection
         logger.info(
-            f'Summary of {reflection_iteration} iteration paragraph {paragraph_index}: {truncate_content(response.summary)}'
+            f'Summary of {reflection_iteration} iteration paragraph {paragraph_index}: {truncate_content(summary.summary)}'
         )
 
         if stop_reflection or reflection_iteration >= self.max_reflections:
@@ -296,7 +303,7 @@ Title: {paragraph.title}
 Latest state: {paragraph.research.latest_summary}\n
 """
 
-        llm_with_structure = self.llm.with_structured_output(FinalReport)
+        llm_with_structure = self.llm.with_structured_output(FinalReport, include_raw=True)
         logger.info('Final report generation is in progress...')
 
         try:
@@ -306,13 +313,16 @@ Latest state: {paragraph.research.latest_summary}\n
                     HumanMessage(user_prompt),
                 ]
             )
-            assert isinstance(response, FinalReport)
+            assert isinstance(response, dict) and response['parsing_error'] is None
+            ai_msg = response['raw']
+            report = response['parsed']
+            assert isinstance(report, FinalReport)
         except Exception:
             logger.exception('Exception occurred while running generate_final_report.')
             raise
 
         return {
-            'final_report': response.report_content,
+            'final_report': report.report_content,
             'is_completed': True,
-            'report_title': response.report_title,
+            'report_title': report.report_title,
         }
