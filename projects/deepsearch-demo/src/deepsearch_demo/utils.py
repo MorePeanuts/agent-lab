@@ -1,3 +1,6 @@
+from datetime import datetime
+
+
 def truncate_content(content: str, max_length: int = 50000) -> str:
     if len(content) <= max_length:
         return content
@@ -8,3 +11,7 @@ def truncate_content(content: str, max_length: int = 50000) -> str:
         return truncated[:last_space] + '...'
     else:
         return truncated + '...'
+
+
+def now() -> str:
+    return datetime.now().strftime('%y%m%d_%H%M%S')

@@ -1,6 +1,7 @@
 from typing import Literal
 from pathlib import Path
 import json
+import sys
 from langchain.chat_models import init_chat_model
 from langchain.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.types import Command
@@ -9,11 +10,11 @@ from loguru import logger
 from .state import State, Paragraph
 from .schema import ReportStructure, ReflectionSummary, FinalReport
 from .tools import tavily_search
-from .utils import truncate_content
+from .utils import truncate_content, now
 
 
 class DeepSearchAgent:
-    def __init__(self, max_reflections=3, save_dir: Path | None = None):
+    def __init__(self, save_dir: Path | None = None, max_reflections: int = 3):
         self.llm = init_chat_model('deepseek-chat')
         self.max_reflections = max_reflections
         self.save_dir = save_dir
@@ -30,10 +31,21 @@ class DeepSearchAgent:
             .compile()
         )
 
+        if save_dir:
+            self.log_path = save_dir / 'running.log'
+            self.output_path = save_dir / 'messages.md'
+            logger.remove()
+            logger.add(sys.stderr, level='DEBUG')
+            logger.add(self.log_path, level='DEBUG')
+
     def research(self, query: str) -> str:
         logger.info(f'Start research: {query}')
+        if self.save_dir:
+            self.output = open(self.output_path, 'a')
         self.state = State(query=query)
         response = self.agent.invoke(self.state)
+        if self.save_dir:
+            self.output.close()
         return AIMessage(response['final_report']).pretty_repr()
 
     def plot_graph(self, path: Path):
@@ -41,8 +53,19 @@ class DeepSearchAgent:
         with path.open('wb') as f:
             f.write(graph)
 
+    def _save_messages(self, messages, node_name):
+        if self.save_dir:
+            self.output.write(
+                '=============================== Message Metadata ==============================='
+            )
+            self.output.write(f'Node: {node_name}\n')
+            self.output.write(f'Time: {now()}\n\n')
+            for msg in messages:
+                self.output.write(msg.pretty_repr())
+                self.output.write('\n')
+
     def generate_report_structure(self, state: State) -> Command[Literal['first_search']]:
-        logger.info('Generating the report structure based on the following query:')
+        logger.info('Generating the report structure based on above query.')
 
         prompt = """
 You are a deep research assistant. Given a query, you need to plan the structure of a report and the paragraphs it contains. Up to five paragraphs.
@@ -51,16 +74,14 @@ Ensure the paragraphs are logically and sequentially ordered.
 
 Once the outline is created, you will be provided with tools to search the web and reflect on each section separately.
 """
+        user_prompt = f'Query: {state.query}'
+        messages = [SystemMessage(prompt), HumanMessage(user_prompt)]
         llm_with_structure = self.llm.with_structured_output(ReportStructure, include_raw=True)
         try:
-            response = llm_with_structure.invoke(
-                [
-                    SystemMessage(prompt),
-                    HumanMessage(state.query),
-                ]
-            )
+            response = llm_with_structure.invoke(messages)
             assert isinstance(response, dict) and response['parsing_error'] is None
             ai_msg = response['raw']
+            messages.append(ai_msg)
             report_structure = response['parsed']
             assert isinstance(report_structure, ReportStructure)
         except Exception:
@@ -77,6 +98,8 @@ Once the outline is created, you will be provided with tools to search the web a
         )
         for idx, paragraph in enumerate(paragraphs, 1):
             logger.info(f'\t{idx}. {paragraph["title"]}')
+
+        self._save_messages(messages, 'generate_report_structure')
 
         return Command(
             update={
@@ -106,13 +129,10 @@ Your task is to think about this topic and provide the best web search query to 
 Title: {paragraph.title}
 Expected content: {paragraph.content}
 """
+        messages = [SystemMessage(prompt), HumanMessage(user_prompt)]
         try:
-            ai_msg = llm_with_tools.invoke(
-                [
-                    SystemMessage(prompt),
-                    HumanMessage(user_prompt),
-                ]
-            )
+            ai_msg = llm_with_tools.invoke(messages)
+            messages.append(ai_msg)  # type: ignore
         except Exception:
             logger.exception('Exception while running first_search.')
             raise
@@ -123,6 +143,8 @@ Expected content: {paragraph.content}
 
         logger.info(f'A total of {len(search_results)} search results found')
         paragraph.research.search_history.extend(search_results)
+
+        self._save_messages(messages, 'first_search')
 
         return Command(update={'paragraphs': paragraphs}, goto='first_summary')
 
@@ -148,13 +170,11 @@ Expected content: {paragraph.content}\n
         for idx, search_result in enumerate(search_history):
             user_prompt += f'\tSearch result {idx}: {truncate_content(search_result.content)}'
 
+        messages = [SystemMessage(prompt), HumanMessage(user_prompt)]
+
         try:
-            ai_msg = self.llm.invoke(
-                [
-                    SystemMessage(prompt),
-                    HumanMessage(user_prompt),
-                ]
-            )
+            ai_msg = self.llm.invoke(messages)
+            messages.append(ai_msg)  # type: ignore
         except Exception:
             logger.exception('Exception while running first_summary.')
             raise
@@ -162,6 +182,8 @@ Expected content: {paragraph.content}\n
         logger.info(
             f'First summary for paragraph {paragraph_index}: {truncate_content(paragraph.research.latest_summary, 100)}'
         )
+
+        self._save_messages(messages, 'first_summary')
 
         return Command(update={'paragraphs': paragraphs}, goto='reflection')
 
@@ -186,13 +208,11 @@ Title: {paragraph.title}
 Content: {paragraph.content}
 Latest state: {paragraph.research.latest_summary}
 """
+
+        messages = [SystemMessage(prompt), HumanMessage(user_prompt)]
         try:
-            ai_msg = llm_with_tools.invoke(
-                [
-                    SystemMessage(prompt),
-                    HumanMessage(user_prompt),
-                ]
-            )
+            ai_msg = llm_with_tools.invoke(messages)
+            messages.append(ai_msg)  # type: ignore
         except Exception:
             logger.exception('Exception while running reflection.')
             raise
@@ -203,6 +223,8 @@ Latest state: {paragraph.research.latest_summary}
 
         logger.info(f'A total of {len(search_results)} search results found')
         paragraph.research.search_history.extend(search_results)
+
+        self._save_messages(messages, 'reflection')
 
         return Command(update={'paragraphs': paragraphs}, goto='reflection_summary')
 
@@ -243,15 +265,13 @@ Paragraph latest state: {paragraph.research.latest_summary}
         for idx, search_result in enumerate(search_history):
             user_prompt += f'\tSearch result {idx}: {truncate_content(search_result.content)}'
 
+        messages = [SystemMessage(prompt), HumanMessage(user_prompt)]
+
         try:
-            response = llm_with_structure.invoke(
-                [
-                    SystemMessage(prompt),
-                    HumanMessage(user_prompt),
-                ]
-            )
+            response = llm_with_structure.invoke(messages)
             assert isinstance(response, dict) and response['parsing_error'] is None
             ai_msg = response['raw']
+            messages.append(ai_msg)
             summary = response['parsed']
             assert isinstance(summary, ReflectionSummary)
         except Exception:
@@ -263,6 +283,8 @@ Paragraph latest state: {paragraph.research.latest_summary}
         logger.info(
             f'Summary of {reflection_iteration} iteration paragraph {paragraph_index}: {truncate_content(summary.summary)}'
         )
+
+        self._save_messages(messages, 'reflection_summary')
 
         if stop_reflection or reflection_iteration >= self.max_reflections:
             if paragraph_index < len(paragraphs) - 1:
@@ -303,23 +325,23 @@ Title: {paragraph.title}
 Latest state: {paragraph.research.latest_summary}\n
 """
 
+        messages = [SystemMessage(prompt), HumanMessage(user_prompt)]
+
         llm_with_structure = self.llm.with_structured_output(FinalReport, include_raw=True)
         logger.info('Final report generation is in progress...')
 
         try:
-            response = llm_with_structure.invoke(
-                [
-                    SystemMessage(prompt),
-                    HumanMessage(user_prompt),
-                ]
-            )
+            response = llm_with_structure.invoke(messages)
             assert isinstance(response, dict) and response['parsing_error'] is None
             ai_msg = response['raw']
+            messages.append(ai_msg)
             report = response['parsed']
             assert isinstance(report, FinalReport)
         except Exception:
             logger.exception('Exception occurred while running generate_final_report.')
             raise
+
+        self._save_messages(messages, 'generate_final_report')
 
         return {
             'final_report': report.report_content,
