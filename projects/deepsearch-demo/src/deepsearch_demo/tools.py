@@ -12,6 +12,15 @@ class SearchResult:
     content: str
     score: float | None = None
 
+    def to_dict(self) -> dict:
+        return {
+            'search_query': self.search_query,
+            'title': self.title,
+            'url': self.url,
+            'content': self.content,
+            'score': self.score,
+        }
+
 
 _tavily_client = None
 

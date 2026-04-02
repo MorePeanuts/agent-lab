@@ -46,6 +46,9 @@ class DeepSearchAgent:
         response = self.agent.invoke(self.state)
         if self.save_dir:
             self.output.close()
+            state_path = self.save_dir / 'state.json'
+            self.state.save(state_path)
+            logger.info(f'State saved to {state_path}')
         print('Final output:\n')
         AIMessage(response['final_report']).pretty_print()
 
