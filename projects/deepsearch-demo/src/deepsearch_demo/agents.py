@@ -46,9 +46,6 @@ class DeepSearchAgent:
         response = self.agent.invoke(self.state)
         if self.save_dir:
             self.output.close()
-            state_path = self.save_dir / 'state.json'
-            self.state.save(state_path)
-            logger.info(f'State saved to {state_path}')
         print('Final output:\n')
         AIMessage(response['final_report']).pretty_print()
 
@@ -178,7 +175,7 @@ Please generate the content directly, without producing irrelevant information.
             raise
         paragraph.research.latest_summary = ai_msg.content  # type: ignore
         logger.info(
-            f'First summary for paragraph {paragraph_index + 1}: {truncate_content(paragraph.research.latest_summary, 100)}'
+            f'First summary for paragraph {paragraph_index + 1}: {truncate_content(paragraph.research.latest_summary, 200)}'
         )
 
         self._save_messages(messages, 'first_summary')
@@ -279,7 +276,7 @@ Paragraph latest state: {paragraph.research.latest_summary}
         paragraph.research.latest_summary = summary.summary
         stop_reflection = summary.stop_reflection
         logger.info(
-            f'Summary of {reflection_iteration} iteration paragraph {paragraph_index + 1}: {truncate_content(summary.summary)}'
+            f'Summary of {reflection_iteration} iteration paragraph {paragraph_index + 1}: {truncate_content(summary.summary, 200)}'
         )
 
         self._save_messages(messages, 'reflection_summary')
@@ -345,6 +342,12 @@ Latest state: {paragraph.research.latest_summary}\n
             report_path = self.save_dir / 'report.md'
             with report_path.open('w') as f:
                 f.write(report.report_content)
+            state_path = self.save_dir / 'state.json'
+            state.final_report = 'report.md'
+            state.is_completed = True
+            state.report_title = report.report_title
+            state.save(state_path)
+            logger.info(f'State saved to {state_path}')
 
         return {
             'final_report': report.report_content,
