@@ -4,9 +4,10 @@ from .models import ChatModelFactory
 from ..utils.commands import CommandParser
 from ..tools.builtin import get_builtin_tool
 from langgraph.types import interrupt, Command
+from typing import Literal
 
 
-def user_input(state: ChatBotState):
+def user_input(state: ChatBotState) -> Command[Literal['chat_model_call', 'command_parse']]:
     user_prompt: str = interrupt(
         {
             'action': 'user_input',
@@ -29,7 +30,7 @@ def user_input(state: ChatBotState):
     )
 
 
-async def chat_model_call(state: ChatBotState):
+async def chat_model_call(state: ChatBotState) -> Command[Literal['builtin_tools', 'user_input']]:
     chat_model = ChatModelFactory.get(state['chat_model'])
     ai_msg = await chat_model.ainvoke(state['messages'])
 
@@ -47,7 +48,7 @@ async def chat_model_call(state: ChatBotState):
     )
 
 
-def command_parse(state: ChatBotState):
+def command_parse(state: ChatBotState) -> Command[Literal['user_input', '__end__']]:
     if state['user_last_prompt'] == '/exit':
         return Command(goto='__end__')
     # TODO: More command parsing
@@ -57,7 +58,7 @@ def command_parse(state: ChatBotState):
         return Command(goto='user_input')
 
 
-async def builtin_tools(state: ChatBotState):
+async def builtin_tools(state: ChatBotState) -> Command[Literal['chat_model_call']]:
     ai_msg = state['messages'][-1]
     assert isinstance(ai_msg, AIMessage), (
         'The last message entering the tool call node does not come from AI.'

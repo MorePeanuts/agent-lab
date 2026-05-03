@@ -8,7 +8,7 @@ from langgraph.types import Command
 from langchain.messages import AIMessageChunk
 
 
-async def agent_loop():
+def create_agent():
     checkpointer = InMemorySaver()
     agent = (
         StateGraph(ChatBotState)  # type: ignore
@@ -19,7 +19,11 @@ async def agent_loop():
         .add_edge(START, 'user_input')
         .compile(checkpointer=checkpointer)
     )
+    return agent, checkpointer
 
+
+async def agent_loop():
+    agent, _checkpointer = create_agent()
     default_config: RunnableConfig = {
         'configurable': {
             'thread_id': 'default_thread',
