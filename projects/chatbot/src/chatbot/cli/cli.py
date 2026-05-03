@@ -1,5 +1,7 @@
+import asyncio
 from typer import Typer, Argument, Option
 from typing import Annotated
+from ..agents import agent_loop
 
 
 app = Typer(name='ChatBot', help='A Chatbot Agent for Research and Architecture Exploration')
@@ -24,7 +26,8 @@ def run(
         ),
     ] = False,
 ):
-    print('Hello from ChatBot!')
+    print('Hello from ChatBot!\n')
+    asyncio.run(agent_loop())
 
 
 def main():
